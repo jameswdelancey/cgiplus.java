@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Hex Minimal Java CGI-ish</title>
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:2rem;max-width:900px}
+    h2{margin-top:2rem}
+    pre{background:#f6f6f7;padding:1rem;border-radius:10px;white-space:pre-wrap}
+    .row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin:.5rem 0}
+    input,button{padding:.5rem}
+    code{background:#f0f0f0;padding:.15rem .3rem;border-radius:6px}
+    .pill{display:inline-block;background:#eef;border:1px solid #ccd;border-radius:999px;padding:.2rem .6rem;font-size:.9rem}
+  </style>
+</head>
+<body>
+  <h1>Minimal Java (Hexagonal) — Sync + Async</h1>
+
+  <p class="pill">Sync: <code>/api/echo</code></p>
+  <div class="row">
+    <label>Message</label>
+    <input id="msg" value="Hello from the browser!"/>
+    <button id="getBtn">GET /api/echo</button>
+    <button id="postBtn">POST /api/echo</button>
+  </div>
+  <pre id="syncOut">Click a button…</pre>
+
+  <h2>Async worker demo</h2>
+  <p class="pill">Start: <code>/api/job/start</code> → returns <em>dynamic</em> jobId</p>
+  <div class="row">
+    <label>Static ID (sid)</label><input id="sid" value="demo-1"/>
+    <label>Duration (seconds)</label><input id="secs" type="number" value="5" min="1" max="60"/>
+    <button id="startJob">Start LongDemo</button>
+  </div>
+  <div class="row">
+    <label>jobId</label><input id="jobId" size="40" placeholder="(returned id)"/>
+    <button id="poll">Poll status</button>
+    <button id="getOut">Fetch output</button>
+  </div>
+  <pre id="asyncOut">Start a job…</pre>
+
+  <script>
+    const show = (el) => (obj) => $(el).text(typeof obj==="string" ? obj : JSON.stringify(obj,null,2));
+
+    $("#getBtn").on("click", function(){
+      const msg = encodeURIComponent($("#msg").val());
+      $.getJSON("/api/echo?msg="+msg, show("#syncOut"))
+       .fail(x=>show("#syncOut")("GET failed: "+x.status+" "+x.responseText));
+    });
+
+    $("#postBtn").on("click", function(){
+      const body = { message: $("#msg").val(), ts: Date.now() };
+      $.ajax({
+        url: "/api/echo?from=post",
+        method: "POST",
+        contentType: "application/json",
+        data: JSON.stringify(body),
+        success: show("#syncOut"),
+        error: x => show("#syncOut")("POST failed: "+x.status+" "+x.responseText)
+      });
+    });
+
+    $("#startJob").on("click", function(){
+      const sid = encodeURIComponent($("#sid").val());
+      const secs = encodeURIComponent($("#secs").val());
+      $.getJSON("/api/job/start?name=longDemo&sid="+sid+"&seconds="+secs, function(d){
+        $("#jobId").val(d.jobId||"");
+        show("#asyncOut")(d);
+      }).fail(x=>show("#asyncOut")("start failed: "+x.status+" "+x.responseText));
+    });
+
+    $("#poll").on("click", function(){
+      const id = encodeURIComponent($("#jobId").val());
+      $.getJSON("/api/job/status?id="+id, show("#asyncOut"))
+       .fail(x=>show("#asyncOut")("status failed: "+x.status+" "+x.responseText));
+    });
+
+    $("#getOut").on("click", function(){
+      const id = encodeURIComponent($("#jobId").val());
+      $.ajax({ url: "/api/job/output?id="+id, method: "GET" })
+        .done(txt=>show("#asyncOut")(txt))
+        .fail(x=>show("#asyncOut")("output failed: "+x.status+" "+x.responseText));
+    });
+  </script>
+</body>
+</html>
