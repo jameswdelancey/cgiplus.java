@@ -11,7 +11,7 @@ public class MakeExecutor implements RouteExecutorPort {
     @Override
     public ExecResult execOnce(String className, String query) {
         try {
-            List<String> cmd = List.of("make", "run", "CLASS=" + className, "Q=" + query);
+            List<String> cmd = List.of("make", "-s", "run", "CLASS=" + className, "Q=" + query);
             Process p = new ProcessBuilder(cmd).start();
             String out, err;
             try (BufferedReader ro = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8));
