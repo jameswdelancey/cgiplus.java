@@ -24,6 +24,22 @@ The command compiles the project and starts the server on `http://localhost:8080
 The demo page at `static/index.html` is served from `/` and shows both synchronous and asynchronous
 flows.
 
+## Testing the fake adapters from the CLI
+
+`FakeAdaptersCli` offers a tiny command line harness for the fake adapters. Compile the project with
+`make compile` (or allow other targets to compile it automatically) and then use the `fake-adapters`
+target to invoke the helper:
+
+```bash
+# Exercise FakeHttpServerAdapter.start() without spinning up a real server
+make fake-adapters ARGS="http --port 9090"
+
+# Run FakeMakeExecutor through JobService.execSync() with queued results
+make fake-adapters ARGS="exec --enqueue 0 '{\"ok\":true}' '' routes.api.Echo msg=hi"
+```
+
+Run `make fake-adapters ARGS="help"` to see the available options.
+
 ## Synchronous routes (`/api/...`)
 
 * Path mapping: `/api/<name>` loads the class `routes.api.<Name>` (lowercase-to-Pascal conversion).

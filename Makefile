@@ -21,5 +21,8 @@ run: compile
 	@[ -n "$(CLASS)" ] || (echo "CLASS not set"; exit 2)
 	@$(JAVA) -cp $(CP) $(CLASS) "$(Q)"
 
+fake-adapters: compile
+	@$(JAVA) -cp $(CP) tools.FakeAdaptersCli $(ARGS)
+
 clean:
 	@rm -rf $(OUT_DIR)
