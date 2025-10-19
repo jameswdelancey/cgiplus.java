@@ -4,6 +4,44 @@ A tiny Java playground that emulates old-school CGI by running each route in its
 process only hosts a lightweight HTTP server and a background job queue—the interesting work lives in
 regular Java classes under `src/routes/api` that communicate with the host through process I/O.
 
+## Architecture overview
+
+```mermaid
+classDiagram
+    class Main {
+        +main(String[] args)
+    }
+    class HttpServerAdapter {
+        +start(int port)
+    }
+    class JobService {
+        +execSync(String className, String query)
+        +enqueue(String className, String query, String sid)
+        +get(String id)
+    }
+    class RouteExecutorPort {
+        <<interface>>
+        +ExecResult exec(String className, String query)
+    }
+    class MakeExecutor {
+        +exec(String className, String query)
+    }
+    class Job {
+        +id : String
+        +sid : String
+        +className : String
+        +state : JobState
+        +stdoutPath : Path
+    }
+
+    Main --> HttpServerAdapter
+    Main --> JobService
+    JobService --> RouteExecutorPort
+    MakeExecutor ..|> RouteExecutorPort
+    HttpServerAdapter --> JobService
+    JobService --> Job
+```
+
 ## Requirements
 
 - Java 17+ (the server uses the built-in `com.sun.net.httpserver.HttpServer`)
@@ -36,6 +74,93 @@ make fake-adapters ARGS="http --port 9090"
 
 # Run FakeMakeExecutor through JobService.execSync() with queued results
 make fake-adapters ARGS="exec --enqueue 0 '{\"ok\":true}' '' routes.api.Echo msg=hi"
+```
+
+### Entrypoint sequence diagrams
+
+#### Server startup (`make serve` → `Main`)
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Make
+    participant Main
+    participant HttpServerAdapter
+    participant JobService
+    participant MakeExecutor
+
+    User->>Make: make serve
+    Make->>Main: launch JVM
+    Main->>MakeExecutor: new MakeExecutor()
+    Main->>JobService: new JobService(exec)
+    Main->>HttpServerAdapter: new HttpServerAdapter(jobs)
+    HttpServerAdapter->>HttpServerAdapter: start(8080)
+    HttpServerAdapter-->>User: Listening on http://localhost:8080
+```
+
+#### Synchronous routes (`/api/...`)
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant HttpServerAdapter
+    participant JobService
+    participant MakeExecutor
+    participant Route as routes.api.<Name>
+
+    Client->>HttpServerAdapter: GET /api/echo?msg=hi
+    HttpServerAdapter->>HttpServerAdapter: Persist body (if any) to disk
+    HttpServerAdapter->>JobService: execSync("routes.api.Echo", query)
+    JobService->>MakeExecutor: exec(className, query)
+    MakeExecutor->>Route: Launch JVM main(args)
+    Route-->>MakeExecutor: stdout/stderr + exit
+    MakeExecutor-->>JobService: ExecResult
+    JobService-->>HttpServerAdapter: ExecResult
+    HttpServerAdapter-->>Client: 200 OK + JSON
+```
+
+#### Asynchronous jobs (`/api/job/...`)
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant HttpServerAdapter
+    participant JobService
+    participant Worker as Worker Pool
+    participant MakeExecutor
+    participant Route as routes.api.<Name>
+
+    Client->>HttpServerAdapter: GET /api/job/start?name=longDemo
+    HttpServerAdapter->>HttpServerAdapter: Persist body + augment query
+    HttpServerAdapter->>JobService: enqueue(className, query, sid)
+    JobService->>Worker: Schedule job
+    Worker->>MakeExecutor: exec(className, query)
+    MakeExecutor->>Route: Launch JVM main(args)
+    Route-->>MakeExecutor: stdout/stderr + exit
+    MakeExecutor-->>Worker: ExecResult
+    Worker-->>JobService: Update job state + store output
+    HttpServerAdapter-->>Client: 200 OK + jobId
+    Client->>HttpServerAdapter: GET /api/job/status?id=...
+    HttpServerAdapter->>JobService: get(jobId)
+    JobService-->>HttpServerAdapter: Job snapshot
+    HttpServerAdapter-->>Client: JSON status
+```
+
+#### Fake adapters CLI (`make fake-adapters`)
+
+```mermaid
+sequenceDiagram
+    participant Developer
+    participant FakeAdaptersCli
+    participant MakeExecutor
+    participant Route as routes.api.<Name>
+
+    Developer->>FakeAdaptersCli: fake-adapters ARGS="exec ..."
+    FakeAdaptersCli->>MakeExecutor: exec(className, query)
+    MakeExecutor->>Route: Launch JVM main(args)
+    Route-->>MakeExecutor: stdout/stderr + exit
+    MakeExecutor-->>FakeAdaptersCli: ExecResult
+    FakeAdaptersCli-->>Developer: Print formatted output
 ```
 
 Run `make fake-adapters ARGS="help"` to see the available options.
@@ -125,7 +250,7 @@ curl "http://localhost:8080/api/job/output?id=$JOB"
     │   └── RouteExecutorPort.java
     └── routes/api/
         ├── Echo.java
-        └── LongDemo.api
+        └── LongDemo.java
 ```
 
 Happy hacking!
