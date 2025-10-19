@@ -52,7 +52,7 @@ public class JobService {
         j.startMs = System.currentTimeMillis();
         int exit = -1;
         try {
-            ProcessBuilder pb = new ProcessBuilder("make", "run", "CLASS=" + j.className, "Q=" + j.query);
+            ProcessBuilder pb = new ProcessBuilder("make", "-s", "run", "CLASS=" + j.className, "Q=" + j.query);
             pb.redirectOutput(j.stdoutPath.toFile());
             pb.redirectError(j.stderrPath.toFile());
             Process p = pb.start();
