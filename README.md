@@ -38,9 +38,10 @@ classDiagram
         +state : JobState
         +stdoutPath : Path
     }
-    class "routes.pages.Hello" as RoutesPagesHello {
+    class RoutesPagesHello {
         +main(String[] args)
     }
+    note for RoutesPagesHello "routes.pages.Hello"
     class StaticAssets {
         <<folder>> static/
     }
