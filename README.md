@@ -17,6 +17,7 @@ classDiagram
     }
     class HttpServerAdapter {
         +start(int port)
+        -handleRoot(HttpExchange)
     }
     class JobService {
         +execSync(String className, String query)
@@ -37,6 +38,12 @@ classDiagram
         +state : JobState
         +stdoutPath : Path
     }
+    class "routes.pages.Hello" as RoutesPagesHello {
+        +main(String[] args)
+    }
+    class StaticAssets {
+        <<folder>> static/
+    }
 
     Main --> HttpServerAdapter
     Main --> JobService
@@ -44,6 +51,8 @@ classDiagram
     MakeExecutor ..|> RouteExecutorPort
     HttpServerAdapter --> JobService
     JobService --> Job
+    HttpServerAdapter --> StaticAssets : serve files
+    HttpServerAdapter ..> RoutesPagesHello : exec via JobService
 ```
 
 ## Requirements
@@ -124,6 +133,34 @@ sequenceDiagram
     HttpServerAdapter-->>Client: 200 OK + JSON
 ```
 
+#### Static assets and page routes (`/`)
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant HttpServerAdapter
+    participant FileSystem as static/
+    participant JobService
+    participant MakeExecutor
+    participant Page as routes.pages.<Name>
+
+    Client->>HttpServerAdapter: GET /hello?name=Ada
+    HttpServerAdapter->>HttpServerAdapter: resolveStaticPath()
+    alt Static file found
+        HttpServerAdapter->>FileSystem: Stream file bytes
+        FileSystem-->>HttpServerAdapter: Content
+        HttpServerAdapter-->>Client: 200 OK + asset
+    else No static match
+        HttpServerAdapter->>JobService: execSync("routes.pages.Hello", query)
+        JobService->>MakeExecutor: exec(className, query)
+        MakeExecutor->>Page: Launch JVM main(args)
+        Page-->>MakeExecutor: HTML output + exit
+        MakeExecutor-->>JobService: ExecResult
+        JobService-->>HttpServerAdapter: ExecResult
+        HttpServerAdapter-->>Client: 200 OK + HTML
+    end
+```
+
 #### Asynchronous jobs (`/api/job/...`)
 
 ```mermaid
@@ -200,6 +237,29 @@ curl -X POST "http://localhost:8080/api/echo?from=post" \
    the class already exists in `build/`.
 
 You can also execute a route manually with `make run CLASS=routes.api.MyRoute Q="foo=bar"`.
+
+## Page routes and static assets (`/`)
+
+* When a client requests a path under `/`, the HTTP adapter first checks for a matching file within
+  the `static/` directory (normalizing the path to prevent traversal). Files stream directly to the
+  client with the detected or inferred content type.
+* If no static asset exists, the adapter converts the URL segments to PascalCase and invokes the
+  corresponding `routes.pages.<Name>` class via `JobService.execSync(...)`.
+* Page routes behave like synchronous API routes but typically emit HTML. They receive the raw query
+  string in `args[0]` and should print the rendered markup to `stdout`.
+
+Example:
+
+```bash
+curl "http://localhost:8080/hello?name=Visitor"
+```
+
+### Adding a page route
+
+1. Create `src/routes/pages/MyPage.java` with a `public static void main(String[] args)` entry point.
+2. Parse the query string (available as `args[0]`) and print your HTML payload to `stdout`.
+3. Visit `/myPage` in the browser. If the class already exists in `build/`, the next request
+   recompiles automatically.
 
 ## Asynchronous jobs (`/api/job/...`)
 
