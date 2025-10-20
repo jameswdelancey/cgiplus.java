@@ -8,7 +8,9 @@ import com.sun.net.httpserver.HttpServer;
 import domain.Job;
 import ports.RouteExecutorPort;
 
-import java.io.*;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -41,13 +43,26 @@ public class HttpServerAdapter {
             send(ex, 405, "text/plain; charset=utf-8", "Method Not Allowed");
             return;
         }
-        Path p = Path.of("static/index.html");
-        if (!Files.exists(p)) { send(ex, 500, "text/plain; charset=utf-8", "Missing static/index.html"); return; }
-        byte[] b = Files.readAllBytes(p);
-        Headers h = ex.getResponseHeaders();
-        h.set("Content-Type", "text/html; charset=utf-8");
-        ex.sendResponseHeaders(200, b.length);
-        try (OutputStream os = ex.getResponseBody()) { os.write(b); }
+
+        String path = ex.getRequestURI().getPath();
+        if (path == null || path.isBlank()) path = "/";
+
+        Path staticFile = resolveStaticPath(path);
+        if (staticFile != null && Files.isRegularFile(staticFile)) {
+            Headers h = ex.getResponseHeaders();
+            String contentType = Files.probeContentType(staticFile);
+            if (contentType == null || contentType.isBlank()) contentType = guessContentType(staticFile);
+            h.set("Content-Type", contentType);
+            long len = Files.size(staticFile);
+            ex.sendResponseHeaders(200, len);
+            try (OutputStream os = ex.getResponseBody();
+                 InputStream in = Files.newInputStream(staticFile)) {
+                in.transferTo(os);
+            }
+            return;
+        }
+
+        handlePageRender(ex, path);
     }
 
     private void handleApi(HttpExchange ex) throws IOException {
@@ -145,6 +160,7 @@ public class HttpServerAdapter {
         String m = ex.getRequestMethod();
         boolean has = "POST".equalsIgnoreCase(m) || "PUT".equalsIgnoreCase(m) || "PATCH".equalsIgnoreCase(m);
         Path postPath = Path.of("build/post", UUID.randomUUID() + ".txt");
+        Files.createDirectories(postPath.getParent());
         if (has) try (OutputStream out = Files.newOutputStream(postPath)) { ex.getRequestBody().transferTo(out); }
         else Files.writeString(postPath, "", StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
         return postPath;
@@ -157,6 +173,66 @@ public class HttpServerAdapter {
     }
 
     private static String esc(String s){ return s.replace("\\","\\\\").replace("\"","\\\""); }
+
+    private void handlePageRender(HttpExchange ex, String path) throws IOException {
+        String[] parts = path.split("/");
+        StringBuilder cls = new StringBuilder("routes.pages.");
+        boolean has = false;
+        for (String part : parts) {
+            if (part == null || part.isBlank()) continue;
+            String sanitized = part.replaceAll("[^a-zA-Z0-9_]", "");
+            if (sanitized.isEmpty()) continue;
+            cls.append(toPascal(sanitized));
+            has = true;
+        }
+        if (!has) cls.append("Index");
+
+        String rawQ = ex.getRequestURI().getRawQuery();
+        if (rawQ == null) rawQ = "";
+
+        RouteExecutorPort.ExecResult r = jobs.execSync(cls.toString(), rawQ);
+        if (r.exit != 0) {
+            String stderr = r.stderr == null ? "" : r.stderr;
+            if (stderr.contains("Could not find or load main class")) {
+                send(ex, 404, "text/plain; charset=utf-8", "Page not found");
+            } else {
+                send(ex, 500, "text/plain; charset=utf-8",
+                        "Route process failed (exit " + r.exit + ")\n" + stderr);
+            }
+        } else {
+            send(ex, 200, "text/html; charset=utf-8", r.stdout);
+        }
+    }
+
+    private Path resolveStaticPath(String path) {
+        String clean = path;
+        if (clean.endsWith("/")) clean = clean + "index.html";
+        if ("/".equals(clean)) clean = "/index.html";
+        clean = clean.replace('\\', '/');
+        if (clean.startsWith("/")) clean = clean.substring(1);
+
+        Path root = Path.of("static").toAbsolutePath().normalize();
+        Path resolved = root.resolve(clean).normalize();
+        if (!resolved.startsWith(root)) return null;
+        if (Files.isDirectory(resolved)) {
+            Path idx = resolved.resolve("index.html");
+            if (Files.exists(idx)) return idx;
+        }
+        if (Files.exists(resolved)) return resolved;
+        return null;
+    }
+
+    private String guessContentType(Path p) {
+        String name = p.getFileName().toString().toLowerCase(Locale.ROOT);
+        if (name.endsWith(".html") || name.endsWith(".htm")) return "text/html; charset=utf-8";
+        if (name.endsWith(".css")) return "text/css; charset=utf-8";
+        if (name.endsWith(".js")) return "application/javascript; charset=utf-8";
+        if (name.endsWith(".json")) return "application/json; charset=utf-8";
+        if (name.endsWith(".png")) return "image/png";
+        if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg";
+        if (name.endsWith(".gif")) return "image/gif";
+        return "application/octet-stream";
+    }
 
     private static void send(HttpExchange ex, int code, String contentType, String body) throws IOException {
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);

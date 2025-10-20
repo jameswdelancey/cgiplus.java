@@ -64,7 +64,8 @@ The command compiles the project and starts the server on `http://localhost:8080
 <kbd>Ctrl</kbd>+<kbd>C</kbd>. Remove compiled artifacts with `make clean`.
 
 The demo page at `static/index.html` is served from `/` and shows both synchronous and asynchronous
-flows.
+flows. Any other request under `/` tries to read from the `static/` folder first and then falls back
+to invoking a synchronous page route (for example `/hello` runs `routes.pages.Hello`).
 
 ## Testing the fake adapters from the CLI
 
