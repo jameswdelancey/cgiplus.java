@@ -40,6 +40,13 @@
   </div>
   <pre id="asyncOut">Start a job…</pre>
 
+  <h2>Page rendering demo</h2>
+  <p class="pill">Page: <code>/hello</code></p>
+  <p>
+    Try <a href="/hello?name=Java">/hello?name=Java</a> to see a synchronous page rendered by
+    <code>routes.pages.Hello</code>. Drop an HTML file into <code>static/</code> to serve it directly.
+  </p>
+
   <script>
     const show = (el) => (obj) => $(el).text(typeof obj==="string" ? obj : JSON.stringify(obj,null,2));
 
