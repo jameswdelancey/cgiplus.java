@@ -10,11 +10,14 @@ import java.nio.file.*;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.*;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class JobService {
     private final RouteExecutorPort executor;
     private final ExecutorService pool;
     private final ConcurrentMap<String, Job> jobs = new ConcurrentHashMap<>();
+    private static final Logger LOG = Logger.getLogger(JobService.class.getName());
 
     public JobService(RouteExecutorPort executor) {
         this.executor = executor;
@@ -24,9 +27,11 @@ public class JobService {
             Files.createDirectories(Path.of("build/post"));
             Files.createDirectories(Path.of("build/jobs"));
         } catch (IOException ignored) {}
+        LOG.info(() -> "JobService initialized with pool size " + n);
     }
 
     public RouteExecutorPort.ExecResult execSync(String className, String augmentedQ) {
+        LOG.info(() -> "Executing route synchronously: " + className);
         return executor.execOnce(className, augmentedQ);
     }
 
@@ -34,6 +39,7 @@ public class JobService {
         Job j = new Job(className, augmentedQ, sid);
         jobs.put(j.id, j);
         pool.submit(() -> runJob(j));
+        LOG.info(() -> "Queued job " + j.id + " for class " + className + " (sid=" + sid + ")");
         return j;
     }
 
@@ -48,6 +54,7 @@ public class JobService {
     }
 
     private void runJob(Job j) {
+        LOG.info(() -> "Starting job " + j.id + " for class " + j.className);
         j.state = JobState.RUNNING;
         j.startMs = System.currentTimeMillis();
         int exit = -1;
@@ -58,6 +65,7 @@ public class JobService {
             Process p = pb.start();
             exit = p.waitFor();
         } catch (Exception e) {
+            LOG.log(Level.SEVERE, "Job " + j.id + " failed", e);
             try {
                 Files.writeString(j.stderrPath, "Exception: " + e + "\n",
                         StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
@@ -66,6 +74,7 @@ public class JobService {
             j.exit = exit;
             j.endMs = System.currentTimeMillis();
             j.state = JobState.DONE;
+            LOG.info("Finished job " + j.id + " with exit code " + exit);
         }
     }
 }

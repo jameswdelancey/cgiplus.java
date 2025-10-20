@@ -18,10 +18,13 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Executors;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class HttpServerAdapter {
 
     private final JobService jobs;
+    private static final Logger LOG = Logger.getLogger(HttpServerAdapter.class.getName());
 
     public HttpServerAdapter(JobService jobs) {
         this.jobs = jobs;
@@ -34,7 +37,7 @@ public class HttpServerAdapter {
         srv.createContext("/", this::handleRoot);
         srv.createContext("/api", this::handleApi);
         srv.start();
-        System.out.println("Listening on http://localhost:" + port);
+        LOG.info(() -> "Listening on http://localhost:" + port);
     }
 
     // ---- handlers ----
@@ -67,6 +70,7 @@ public class HttpServerAdapter {
 
     private void handleApi(HttpExchange ex) throws IOException {
         String path = ex.getRequestURI().getPath();
+        LOG.info(() -> ex.getRequestMethod() + " " + path);
 
         if (path.equals("/api/job/start")) { handleJobStart(ex); return; }
         if (path.equals("/api/job/status")) { handleJobStatus(ex); return; }
@@ -86,6 +90,7 @@ public class HttpServerAdapter {
 
         RouteExecutorPort.ExecResult r = jobs.execSync(className, augmentedQ);
         if (r.exit != 0) {
+            LOG.warning(() -> "Synchronous route " + className + " failed with exit " + r.exit);
             send(ex, 500, "text/plain; charset=utf-8",
                     "Route process failed (exit " + r.exit + ")\n" + r.stderr);
         } else {
@@ -114,6 +119,7 @@ public class HttpServerAdapter {
                 + "&__sid=" + QueryUtil.enc(sid);
 
         Job j = jobs.enqueue(className, augmentedQ, sid);
+        LOG.info(() -> "Job start requested: id=" + j.id + ", class=" + className + ", sid=" + sid);
         send(ex, 200, "application/json; charset=utf-8",
                 "{\"jobId\":\"" + j.id + "\",\"state\":\"" + j.state + "\",\"sid\":\"" + esc(sid) + "\"}");
     }
@@ -151,6 +157,7 @@ public class HttpServerAdapter {
             String out = Files.readString(j.stdoutPath, StandardCharsets.UTF_8);
             send(ex, 200, "text/plain; charset=utf-8", out);
         } catch (IOException e) {
+            LOG.log(Level.SEVERE, "Reading output failed for job " + id, e);
             send(ex, 500, "text/plain; charset=utf-8", "Reading output failed: " + e);
         }
     }
@@ -190,12 +197,15 @@ public class HttpServerAdapter {
         String rawQ = ex.getRequestURI().getRawQuery();
         if (rawQ == null) rawQ = "";
 
-        RouteExecutorPort.ExecResult r = jobs.execSync(cls.toString(), rawQ);
+        String routeClass = cls.toString();
+        RouteExecutorPort.ExecResult r = jobs.execSync(routeClass, rawQ);
         if (r.exit != 0) {
             String stderr = r.stderr == null ? "" : r.stderr;
             if (stderr.contains("Could not find or load main class")) {
+                LOG.info(() -> "Page not found for class " + routeClass);
                 send(ex, 404, "text/plain; charset=utf-8", "Page not found");
             } else {
+                LOG.warning(() -> "Page render failed for class " + routeClass + " with exit " + r.exit);
                 send(ex, 500, "text/plain; charset=utf-8",
                         "Route process failed (exit " + r.exit + ")\n" + stderr);
             }
