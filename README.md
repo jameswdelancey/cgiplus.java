@@ -4,6 +4,10 @@ A tiny Java playground that emulates old-school CGI by running each route in its
 process only hosts a lightweight HTTP server and a background job queue—the interesting work lives in
 regular Java classes under `src/routes/api` that communicate with the host through process I/O.
 
+<p align="center">
+  <img src="https://github.com/jameswdelancey/cgiplus.java/blob/main/assets/demo.png?raw=true" width="600" alt="cgiplus.java Demo Image">
+</p>
+
 ## Architecture overview
 
 ```mermaid
@@ -34,8 +38,9 @@ classDiagram
         +state : JobState
         +stdoutPath : Path
     }
-    class "routes.pages.Hello" as RoutesPagesHello
-    RoutesPagesHello : +main(String[] args)
+    class "routes.pages.Hello" as RoutesPagesHello {
+        +main(String[] args)
+    }
     class StaticAssets {
         <<folder>> static/
     }
